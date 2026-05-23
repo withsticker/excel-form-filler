@@ -195,12 +195,23 @@ els.fill.addEventListener("click", async () => {
 
 // This function runs in the page context.
 function fillFormInPage(data) {
-  const norm = (s) => String(s || "").toLowerCase().replace(/\([^)]*\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const norm = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, " ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const toks = (s) => norm(s).split(" ").filter(Boolean);
+  // Stop-words that should NOT drive a match on their own.
+  const STOP = new Set(["no", "id", "of", "the", "a", "an", "to", "from", "by", "for", "in", "on", "type", "name", "code", "date", "mrp"]);
 
-  // Build candidate field list: every input/select/textarea + its best label text.
+  // Build candidates with a TIGHT label set — closest preceding label-like element only.
   const fields = [];
   document.querySelectorAll("input, select, textarea").forEach((el) => {
-    if (el.type === "hidden" || el.disabled) return;
+    if (el.type === "hidden" || el.disabled || el.readOnly) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
     const labels = [];
     if (el.id) {
       const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
@@ -208,25 +219,31 @@ function fillFormInPage(data) {
     }
     const wrapLabel = el.closest("label");
     if (wrapLabel) labels.push(wrapLabel.innerText);
-    // Walk up a few ancestors and look at preceding text (h6, label, div, span)
-    let node = el.parentElement;
-    for (let i = 0; i < 5 && node; i++, node = node.parentElement) {
-      const heads = node.querySelectorAll("h1,h2,h3,h4,h5,h6,label,legend,.label,[class*='label']");
-      heads.forEach((h) => labels.push(h.innerText));
-      // previous sibling text
+    // Walk up at most 4 ancestors; at each level look at the IMMEDIATELY PRECEDING
+    // sibling that has short text (a label, not a whole section).
+    let node = el;
+    for (let i = 0; i < 4 && node; i++) {
       let prev = node.previousElementSibling;
-      if (prev) labels.push(prev.innerText);
+      while (prev) {
+        const txt = (prev.innerText || "").trim();
+        if (txt && txt.length > 0 && txt.length < 80 && !txt.includes("\n")) {
+          labels.push(txt);
+          break;
+        }
+        prev = prev.previousElementSibling;
+      }
+      node = node.parentElement;
     }
-    labels.push(el.placeholder || "", el.name || "", el.getAttribute("aria-label") || "");
-    fields.push({ el, labels: labels.map(norm).filter(Boolean) });
+    labels.push(el.placeholder || "", el.name || "", el.id || "", el.getAttribute("aria-label") || "");
+    const labelTokSets = labels.map(toks).filter((t) => t.length);
+    if (!labelTokSets.length) return;
+    fields.push({ el, labelTokSets, used: false });
   });
-
-  const filled = [];
-  const missed = [];
 
   const setValue = (el, value) => {
     const v = String(value);
     const tag = el.tagName.toLowerCase();
+    try { el.focus(); } catch {}
     if (tag === "select") {
       const opts = Array.from(el.options);
       const match = opts.find((o) => norm(o.text) === norm(v) || norm(o.value) === norm(v))
@@ -235,34 +252,57 @@ function fillFormInPage(data) {
     } else if (el.type === "checkbox" || el.type === "radio") {
       el.checked = ["true", "yes", "1", "on", "y", "√", "✓"].includes(v.toLowerCase().trim());
     } else {
-      // React/Angular controlled inputs need a native setter
       const proto = tag === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
       if (setter) setter.call(el, v); else el.value = v;
     }
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.dispatchEvent(new Event("blur", { bubbles: true }));
+    // Fire a wide net of events for React / Angular / autocomplete widgets
+    for (const type of ["keydown", "keypress", "input", "keyup", "change", "blur"]) {
+      const ev = type.startsWith("key")
+        ? new KeyboardEvent(type, { bubbles: true, key: "a" })
+        : new Event(type, { bubbles: true });
+      try { el.dispatchEvent(ev); } catch {}
+    }
   };
 
-  for (const [key, value] of Object.entries(data)) {
-    const k = norm(key);
-    if (!k) continue;
-    // Score each field
+  // Token-based score between a data-key (tokens) and one label (tokens).
+  const score = (keyT, labT) => {
+    if (!keyT.length || !labT.length) return 0;
+    const keyStr = keyT.join(" ");
+    const labStr = labT.join(" ");
+    if (keyStr === labStr) return 100;
+    const keyCore = keyT.filter((t) => !STOP.has(t));
+    const labCore = labT.filter((t) => !STOP.has(t));
+    if (!keyCore.length || !labCore.length) return 0;
+    const labSet = new Set(labT);
+    const matched = keyCore.filter((t) => labSet.has(t)).length;
+    if (matched === 0) return 0;
+    // Require ALL core key tokens to be present in the label.
+    if (matched < keyCore.length) return 0;
+    const extraCore = labCore.filter((t) => !keyT.includes(t)).length;
+    let s = 75 + (matched / keyCore.length) * 20 - extraCore * 10;
+    return Math.max(0, s);
+  };
+
+  const filled = [];
+  const missed = [];
+  // Match more-specific (more-token) keys first so they claim their field.
+  const entries = Object.entries(data).sort((a, b) => toks(b[0]).length - toks(a[0]).length);
+
+  for (const [key, value] of entries) {
+    const keyT = toks(key);
+    if (!keyT.length) continue;
     let best = null;
     let bestScore = 0;
     for (const f of fields) {
-      let score = 0;
-      for (const l of f.labels) {
-        if (!l) continue;
-        if (l === k) score = Math.max(score, 100);
-        else if (l.split(" ").join("") === k.split(" ").join("")) score = Math.max(score, 95);
-        else if (l.includes(k) || k.includes(l)) score = Math.max(score, 60 + Math.min(30, Math.min(l.length, k.length)));
-      }
-      if (score > bestScore) { bestScore = score; best = f; }
+      if (f.used) continue;
+      let s = 0;
+      for (const lt of f.labelTokSets) s = Math.max(s, score(keyT, lt));
+      if (s > bestScore) { bestScore = s; best = f; }
     }
-    if (best && bestScore >= 60) {
-      try { setValue(best.el, value); filled.push(key); } catch { missed.push(key); }
+    if (best && bestScore >= 70) {
+      try { setValue(best.el, value); best.used = true; filled.push(key); }
+      catch { missed.push(key); }
     } else {
       missed.push(key);
     }
