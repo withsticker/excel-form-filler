@@ -1,13 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Sheet Row Form Filler",
-  "version": "1.0.0",
-  "description": "Upload an Excel file once, then auto-fill web forms by picking a row. File is remembered for 24 hours.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "version": "1.1.0",
+  "description": "Upload an Excel file once, then auto-fill web forms by picking a row. Opens as a persistent side panel.",
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "Open Sheet Row Form Filler",
     "default_icon": "icons/icon.png"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "icons": {
     "48": "icons/icon.png",
