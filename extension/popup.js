@@ -81,9 +81,12 @@ function render() {
     els.sheet.innerHTML = "";
     els.tableWrap.innerHTML = "";
     els.fill.disabled = true;
+    els.complete.disabled = true;
+    els.download.disabled = true;
     els.selMeta.textContent = "No row selected.";
     return;
   }
+  els.download.disabled = false;
   const expires = new Date(state.loadedAt + TTL_MS).toLocaleString();
   els.meta.textContent = `${state.fileName} — remembered until ${expires}`;
 
@@ -115,12 +118,17 @@ function renderTable() {
     if (q && !text.includes(q)) return;
     const tr = document.createElement("tr");
     if (idx === state.selectedRowIdx) tr.classList.add("selected");
-    const numTd = document.createElement("td"); numTd.textContent = idx + 1; tr.appendChild(numTd);
+    if (isCompleted(s, idx)) tr.classList.add("completed");
+    const numTd = document.createElement("td");
+    numTd.textContent = (idx + 1) + (isCompleted(s, idx) ? " ✓" : "");
+    tr.appendChild(numTd);
     s.headers.forEach((_, i) => { const td = document.createElement("td"); td.textContent = row[i] ?? ""; tr.appendChild(td); });
     tr.addEventListener("click", () => {
       state.selectedRowIdx = idx;
       els.fill.disabled = false;
-      els.selMeta.textContent = `Row ${idx + 1} selected.`;
+      els.complete.disabled = false;
+      els.complete.textContent = isCompleted(s, idx) ? "Unmark complete" : "Mark complete";
+      els.selMeta.textContent = `Row ${idx + 1} selected${isCompleted(s, idx) ? " (completed)" : ""}.`;
       save();
       renderTable();
     });
