@@ -4,11 +4,12 @@
     <meta charset="utf-8" />
     <title>Sheet Row Form Filler</title>
     <style>
-      body { font: 13px system-ui, sans-serif; width: 460px; margin: 0; padding: 12px; color: #1a1a1a; }
+      body { font: 13px system-ui, sans-serif; margin: 0; padding: 12px; color: #1a1a1a; }
       h1 { font-size: 14px; margin: 0 0 8px; }
       .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
       button { padding: 6px 10px; border: 1px solid #2d7a3a; background: #2d7a3a; color: white; border-radius: 4px; cursor: pointer; font-size: 12px; }
       button.secondary { background: white; color: #333; border-color: #ccc; }
+      button.warn { background: #b45309; border-color: #b45309; }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
       input[type=file], select, input[type=search] { font-size: 12px; padding: 4px; width: 100%; box-sizing: border-box; }
       .meta { font-size: 11px; color: #666; }
@@ -21,7 +22,9 @@
       tbody tr { cursor: pointer; }
       tbody tr:hover { background: #f0f7ff; }
       tbody tr.selected { background: #d6ebff; }
-      .table-wrap { max-height: 280px; overflow: auto; border: 1px solid #e5e5e5; border-radius: 4px; }
+      tbody tr.completed { background: #d6f5d6; color: #1e5a2a; }
+      tbody tr.completed.selected { background: #b5e8b5; }
+      .table-wrap { max-height: 360px; overflow: auto; border: 1px solid #e5e5e5; border-radius: 4px; }
     </style>
   </head>
   <body>
@@ -42,7 +45,14 @@
 
     <div class="row" style="margin-top:10px; justify-content: space-between;">
       <span class="meta" id="selMeta">No row selected.</span>
-      <button id="fill" disabled>Fill form on page</button>
+      <div class="row" style="margin:0; gap:6px;">
+        <button id="complete" class="warn" disabled>Mark complete</button>
+        <button id="fill" disabled>Fill form</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:6px;">
+      <button id="download" class="secondary" disabled>Download report (with completion status)</button>
     </div>
 
     <div id="status"></div>

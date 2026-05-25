@@ -9,6 +9,8 @@ const els = {
   search: document.getElementById("search"),
   tableWrap: document.getElementById("tableWrap"),
   fill: document.getElementById("fill"),
+  complete: document.getElementById("complete"),
+  download: document.getElementById("download"),
   selMeta: document.getElementById("selMeta"),
   status: document.getElementById("status"),
 };
@@ -16,10 +18,14 @@ const els = {
 let state = {
   fileName: null,
   loadedAt: 0,
-  sheets: {}, // { sheetName: { headers: [], rows: [[...]] } }
+  sheets: {}, // { sheetName: { headers: [], rows: [[...]], completed: [idx,...] } }
   activeSheet: null,
   selectedRowIdx: null,
 };
+
+function isCompleted(sheet, idx) {
+  return Array.isArray(sheet?.completed) && sheet.completed.includes(idx);
+}
 
 function setStatus(msg, kind) {
   els.status.className = "status " + (kind || "");
@@ -58,7 +64,7 @@ function parseWorkbook(arrayBuffer, name) {
     }
     const headers = aoa[headerIdx].map((h) => String(h).trim());
     const rows = aoa.slice(headerIdx + 1).filter((r) => r.some((v) => String(v).trim() !== ""));
-    sheets[sheetName] = { headers, rows };
+    sheets[sheetName] = { headers, rows, completed: [] };
   }
   state = {
     fileName: name,
@@ -75,9 +81,12 @@ function render() {
     els.sheet.innerHTML = "";
     els.tableWrap.innerHTML = "";
     els.fill.disabled = true;
+    els.complete.disabled = true;
+    els.download.disabled = true;
     els.selMeta.textContent = "No row selected.";
     return;
   }
+  els.download.disabled = false;
   const expires = new Date(state.loadedAt + TTL_MS).toLocaleString();
   els.meta.textContent = `${state.fileName} — remembered until ${expires}`;
 
@@ -109,12 +118,17 @@ function renderTable() {
     if (q && !text.includes(q)) return;
     const tr = document.createElement("tr");
     if (idx === state.selectedRowIdx) tr.classList.add("selected");
-    const numTd = document.createElement("td"); numTd.textContent = idx + 1; tr.appendChild(numTd);
+    if (isCompleted(s, idx)) tr.classList.add("completed");
+    const numTd = document.createElement("td");
+    numTd.textContent = (idx + 1) + (isCompleted(s, idx) ? " ✓" : "");
+    tr.appendChild(numTd);
     s.headers.forEach((_, i) => { const td = document.createElement("td"); td.textContent = row[i] ?? ""; tr.appendChild(td); });
     tr.addEventListener("click", () => {
       state.selectedRowIdx = idx;
       els.fill.disabled = false;
-      els.selMeta.textContent = `Row ${idx + 1} selected.`;
+      els.complete.disabled = false;
+      els.complete.textContent = isCompleted(s, idx) ? "Unmark complete" : "Mark complete";
+      els.selMeta.textContent = `Row ${idx + 1} selected${isCompleted(s, idx) ? " (completed)" : ""}.`;
       save();
       renderTable();
     });
@@ -151,12 +165,52 @@ els.sheet.addEventListener("change", () => {
   state.activeSheet = els.sheet.value;
   state.selectedRowIdx = null;
   els.fill.disabled = true;
+  els.complete.disabled = true;
+  els.complete.textContent = "Mark complete";
   els.selMeta.textContent = "No row selected.";
   save();
   renderTable();
 });
 
 els.search.addEventListener("input", renderTable);
+
+els.complete.addEventListener("click", () => {
+  const s = state.sheets[state.activeSheet];
+  if (!s || state.selectedRowIdx == null) return;
+  if (!Array.isArray(s.completed)) s.completed = [];
+  const idx = state.selectedRowIdx;
+  const pos = s.completed.indexOf(idx);
+  if (pos === -1) s.completed.push(idx); else s.completed.splice(pos, 1);
+  els.complete.textContent = isCompleted(s, idx) ? "Unmark complete" : "Mark complete";
+  els.selMeta.textContent = `Row ${idx + 1} selected${isCompleted(s, idx) ? " (completed)" : ""}.`;
+  save();
+  renderTable();
+  setStatus(isCompleted(s, idx) ? `Row ${idx + 1} marked complete.` : `Row ${idx + 1} unmarked.`, "ok");
+});
+
+els.download.addEventListener("click", () => {
+  if (!state.fileName) return;
+  try {
+    const wb = XLSX.utils.book_new();
+    for (const [name, s] of Object.entries(state.sheets)) {
+      const headers = [...s.headers, "Status", "Completed At"];
+      const aoa = [headers];
+      const now = new Date().toISOString();
+      s.rows.forEach((row, idx) => {
+        const done = isCompleted(s, idx);
+        aoa.push([...row, done ? "Completed" : "", done ? now : ""]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(wb, ws, name.substring(0, 31));
+    }
+    const base = state.fileName.replace(/\.(xlsx|xls|csv)$/i, "");
+    XLSX.writeFile(wb, `${base}-report.xlsx`);
+    setStatus("Report downloaded.", "ok");
+  } catch (err) {
+    setStatus("Download failed: " + err.message, "err");
+  }
+});
+
 
 els.fill.addEventListener("click", async () => {
   const s = state.sheets[state.activeSheet];
