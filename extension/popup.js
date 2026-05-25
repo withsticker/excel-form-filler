@@ -9,6 +9,8 @@ const els = {
   search: document.getElementById("search"),
   tableWrap: document.getElementById("tableWrap"),
   fill: document.getElementById("fill"),
+  complete: document.getElementById("complete"),
+  download: document.getElementById("download"),
   selMeta: document.getElementById("selMeta"),
   status: document.getElementById("status"),
 };
@@ -16,10 +18,14 @@ const els = {
 let state = {
   fileName: null,
   loadedAt: 0,
-  sheets: {}, // { sheetName: { headers: [], rows: [[...]] } }
+  sheets: {}, // { sheetName: { headers: [], rows: [[...]], completed: [idx,...] } }
   activeSheet: null,
   selectedRowIdx: null,
 };
+
+function isCompleted(sheet, idx) {
+  return Array.isArray(sheet?.completed) && sheet.completed.includes(idx);
+}
 
 function setStatus(msg, kind) {
   els.status.className = "status " + (kind || "");
@@ -58,7 +64,7 @@ function parseWorkbook(arrayBuffer, name) {
     }
     const headers = aoa[headerIdx].map((h) => String(h).trim());
     const rows = aoa.slice(headerIdx + 1).filter((r) => r.some((v) => String(v).trim() !== ""));
-    sheets[sheetName] = { headers, rows };
+    sheets[sheetName] = { headers, rows, completed: [] };
   }
   state = {
     fileName: name,
