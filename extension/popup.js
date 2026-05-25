@@ -192,6 +192,15 @@ els.download.addEventListener("click", () => {
   if (!state.fileName) return;
   try {
     const wb = XLSX.utils.book_new();
+    const headerStyle = {
+      font: { bold: true, color: { rgb: "FFFFFF" } },
+      fill: { patternType: "solid", fgColor: { rgb: "2D7A3A" } },
+      alignment: { horizontal: "center" },
+    };
+    const completedStyle = {
+      fill: { patternType: "solid", fgColor: { rgb: "C6EFCE" } },
+      font: { color: { rgb: "1E5A2A" }, bold: true },
+    };
     for (const [name, s] of Object.entries(state.sheets)) {
       const headers = [...s.headers, "Status", "Completed At"];
       const aoa = [headers];
@@ -201,11 +210,27 @@ els.download.addEventListener("click", () => {
         aoa.push([...row, done ? "Completed" : "", done ? now : ""]);
       });
       const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      // Style header row
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (!ws[addr]) ws[addr] = { t: "s", v: headers[c] };
+        ws[addr].s = headerStyle;
+      }
+      // Style completed rows (green)
+      (s.completed || []).forEach((rowIdx) => {
+        const r = rowIdx + 1; // +1 for header
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const addr = XLSX.utils.encode_cell({ r, c });
+          if (!ws[addr]) ws[addr] = { t: "s", v: "" };
+          ws[addr].s = completedStyle;
+        }
+      });
       XLSX.utils.book_append_sheet(wb, ws, name.substring(0, 31));
     }
     const base = state.fileName.replace(/\.(xlsx|xls|csv)$/i, "");
     XLSX.writeFile(wb, `${base}-report.xlsx`);
-    setStatus("Report downloaded.", "ok");
+    setStatus("Report downloaded with highlights.", "ok");
   } catch (err) {
     setStatus("Download failed: " + err.message, "err");
   }
